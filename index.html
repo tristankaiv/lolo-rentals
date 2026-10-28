@@ -410,6 +410,7 @@ function initMap() {
   layer = L.layerGroup().addTo(map); drawPins();
   const zoomClass = () => $('#mapbox').classList.toggle('far', map.getZoom() < 16);
   map.on('zoomend', zoomClass); zoomClass();
+  if (window.ResizeObserver) new ResizeObserver(() => map.invalidateSize()).observe($('#mapbox'));
   map.on('click', () => { $('#preview').hidden = true; S.mapSel = null; drawPins(); });
 }
 function drawPins() {
