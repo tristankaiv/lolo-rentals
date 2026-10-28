@@ -263,6 +263,20 @@ details.full p{white-space:pre-line;color:#4c463e;font-size:14px}
 .kd dt{color:var(--muted)}
 .kd dd{margin:0;font-weight:600}
 .short-note{font-size:13px;color:var(--muted);padding:0 18px 8px}
+.ptabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:12px 14px 4px;padding:4px;background:#ebebe8;border-radius:14px}
+.ptabs button{min-height:42px;border-radius:11px;font-weight:700;font-size:14.5px;color:var(--muted);position:relative}
+.ptabs button[aria-selected=true]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.ptabs .dot{font-style:normal;margin-left:6px;background:var(--accent);color:#fff;font-size:11px;padding:2px 7px;border-radius:9px}
+.unread{position:absolute;top:-3px;left:-6px;width:10px;height:10px;border-radius:50%;background:#2b6fd6;border:2px solid #fff}
+.nrow{margin:10px 14px;padding:10px 12px;background:var(--card);border:1px solid var(--line);border-radius:16px}
+.nrow.fresh{border-color:#9db9e8;box-shadow:0 0 0 2px rgba(43,111,214,.12)}
+.nrow .note{margin:8px 0 0}
+.nrow em{font-style:normal;color:#2b6fd6;font-weight:700}
+.nhome{display:flex;align-items:center;gap:10px;text-align:left;width:100%}
+.nhome img,.nhome .ph{width:52px;height:42px;border-radius:8px;object-fit:cover;background:#e6dacb;flex-shrink:0}
+.nhome b{display:block;font-size:15px}
+.nhome small{color:var(--muted);font-size:12.5px}
+.booklink{display:block;margin-top:6px;font-weight:700;font-size:13px;color:var(--accent)}
 /* clean sans headings */
 .top h1,.cbody h3,.d h2,.sec h3,.modal-box h2,.prow h3,.feed h4,.fb h4,.empty h2,.preview h3,.divider,.group-h,.nophoto strong{font-weight:700!important;letter-spacing:-.022em!important}
 .top h1{font-size:22px!important}
@@ -359,7 +373,7 @@ details.full p{white-space:pre-line;color:#4c463e;font-size:14px}
  <button class="tab" role="tab" data-view="homes" aria-selected="true"><svg class="i"><use href="#home"/></svg>Homes</button>
  <button class="tab" role="tab" data-view="map" aria-selected="false"><svg class="i"><use href="#map"/></svg>Map</button>
  <button class="tab" role="tab" data-view="viewings" aria-selected="false"><span class="badge"><svg class="i"><use href="#cal"/></svg><i id="vCount" hidden>0</i></span>Viewings</button>
- <button class="tab" role="tab" data-view="picks" aria-selected="false"><span class="badge"><svg class="i"><use href="#heart"/></svg><i id="tabCount" hidden>0</i></span>Our picks</button>
+ <button class="tab" role="tab" data-view="picks" aria-selected="false"><span class="badge"><svg class="i"><use href="#heart"/></svg><i id="tabCount" hidden>0</i><b id="tabUnread" class="unread" hidden></b></span>Our picks</button>
 </nav>
 
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Home details"></div>
@@ -406,11 +420,18 @@ async function pull() {
   if (!LIVE) { try { const s = JSON.parse(store.get(LOCAL, '{}')); loadState(s.rx || [], s.cm || []); } catch {} return refresh(); }
   try {
     const [rx, cm, vw] = await Promise.all([sb('reactions?select=home_id,person,value,updated_at'), sb('comments?select=home_id,person,body,created_at&order=created_at.asc'), sb('viewings?select=id,home_id,starts_at,who,note,created_by&cancelled=eq.false&order=starts_at.asc')]);
-    loadState(rx, cm); VW = vw.filter(v => byId.has(v.home_id)); lastSync = new Date(); syncErr = false;
-    try { localStorage.setItem(LOCAL + '-feed', JSON.stringify({ rx, cm })); } catch {}
+    const sig = JSON.stringify([rx, cm, vw]); lastSync = new Date(); syncErr = false;
+    if (sig === lastSig) { const sl = $('.sync'); if (sl) sl.textContent = syncLine(); return; }
+    lastSig = sig; loadState(rx, cm); VW = vw.filter(v => byId.has(v.home_id));
   } catch { syncErr = true; }
   refresh();
 }
+let lastSig = '';
+const syncLine = () => LIVE ? (syncErr ? 'Offline. Showing the last saved picks and notes.' : 'Shared live between Tristan, Mom and Sister' + (lastSync ? ' · updated ' + when(lastSync.toISOString()) : '')) : 'Saved on this phone only';
+// unread: notes by the others since this phone last opened All notes
+const SEEN = KEY + '-seen';
+const unread = () => { const t = store.get(SEEN, ''); return allNotes().filter(n => n.p !== me && (!t || n.at > t)); };
+function allNotes() { const l = []; CM.forEach((arr, h) => arr.forEach(c => l.push({ p: c.person, h, at: c.at, body: c.body }))); return l.sort((a, b) => b.at.localeCompare(a.at)); }
 async function react(h, v) {
   if (!me) return askWho(() => react(h, v));
   const o = RX.get(h) || RX.set(h, {}).get(h), was = o[me];
@@ -517,7 +538,7 @@ const FILTERS = [
   { id: 'area', label: 'My area only', fn: u => u.in_area !== false },
 ];
 const SORTS = { rec: ['Best match', (a, b) => score.get(b.id) - score.get(a.id)], loved: ['Most loved', (a, b) => lovers(b.id).length - lovers(a.id).length || score.get(b.id) - score.get(a.id)], price: ['Lowest price', (a, b) => a.price - b.price], walk: ['Closest to SeaBus', (a, b) => seaMin(a) - seaMin(b)], size: ['Biggest', (a, b) => (b.sqft || 0) - (a.sqft || 0)], new: ['Newest', (a, b) => (b.first_seen || '').localeCompare(a.first_seen || '')] };
-const S = { on: new Set(['long']), sort: 'rec', view: 'homes', sel: null };
+const S = { on: new Set(['long']), sort: 'rec', view: 'homes', sel: null, ptab: 'picks', who: 'all' };
 const bucket = u => gone(u) ? 4 : val(u.id) === 'no' ? 3 : shortTerm(u) ? 2 : u.in_area === false ? 1 : 0;
 
 function visible() {
@@ -585,12 +606,22 @@ function renderPicks() {
   RX.forEach((o, h) => Object.entries(o).forEach(([p, v]) => feed.push({ p, h, at: null, txt: `${REACT[v][1].toLowerCase() === 'no' ? 'said no to' : REACT[v][1].toLowerCase() === 'love' ? 'loves' : 'is a maybe on'}` })));
   const nfeed = []; CM.forEach((l, h) => l.forEach(c => nfeed.push({ p: c.person, h, at: c.at, txt: `: “${c.body.length > 70 ? c.body.slice(0, 70) + '…' : c.body}”` })));
   nfeed.sort((a, b) => b.at.localeCompare(a.at));
-  $('#picksCount').innerHTML = `<div class="sync">${LIVE ? (syncErr ? 'Offline. Showing the last saved picks.' : 'Shared live between Tristan, Mom and Sister' + (lastSync ? ' · updated ' + when(lastSync.toISOString()) : '')) : 'Saved on this phone only (sharing switches on soon)'}</div>`;
-  $('#picksActions').innerHTML = nfeed.length ? `<div class="feed"><h4>Latest notes</h4>${nfeed.slice(0, 6).map(f => `<div>${av(f.p)}<span><b>${P[f.p]?.n || ''}</b> on <button data-open="${f.h}" style="text-decoration:underline">${esc(byId.get(f.h)?.addr || '')}</button>${esc(f.txt)}</span><small>${when(f.at)}</small></div>`).join('')}</div>` : '';
+  const un = unread().length, total = allNotes().length;
+  $('#picksCount').innerHTML = `<div class="ptabs" role="tablist"><button data-ptab="picks" aria-selected="${S.ptab === 'picks'}">Picks</button><button data-ptab="notes" aria-selected="${S.ptab === 'notes'}">All notes${total ? ' · ' + total : ''}${un && S.ptab !== 'notes' ? `<i class="dot">${un} new</i>` : ''}</button></div><div class="sync">${syncLine()}</div>`;
+  $('#tabUnread').hidden = !un;
+  if (S.ptab === 'notes') { renderAllNotes(); const n = units.filter(u => lovers(u.id).length).length; $('#tabCount').textContent = n; $('#tabCount').hidden = !n; return; }
+  $('#picksActions').innerHTML = nfeed.length ? `<div class="feed"><h4>Latest notes</h4>${nfeed.slice(0, 3).map(f => `<div>${av(f.p)}<span><b>${P[f.p]?.n || ''}</b> on <button data-open="${f.h}" style="text-decoration:underline">${esc(byId.get(f.h)?.addr || '')}</button>${esc(f.txt)}</span><small>${when(f.at)}</small></div>`).join('')}<button class="btn ghost small" data-ptab="notes">See all notes</button></div>` : '';
   $('#picksList').outerHTML = `<div id="picksList">${group('Everyone loves', all3) + group('Loved by some', some) + group('Maybes', maybe) || `<div class="empty">${ic('heart')}<h2>No picks yet.</h2><p>Open a home and tap Love, Maybe or No. Everyone’s picks show up here.</p><button class="btn ghost" data-go="homes">Look at homes</button></div>`}${!LIVE && units.some(u => val(u.id) === 'love') ? `<div class="picks-actions"><button class="btn primary" id="sendPicks">${ic('send')}Send my picks</button></div>` : ''}</div>`;
   const n = units.filter(u => lovers(u.id).length).length; $('#tabCount').textContent = n; $('#tabCount').hidden = !n;
 }
 
+function renderAllNotes() {
+  const list = allNotes().filter(n => S.who === 'all' || n.p === S.who), t = store.get(SEEN, '');
+  $('#picksActions').innerHTML = `<div class="chips" style="margin:0;padding:4px 4px 8px">${[['all', 'Everyone'], ...PEOPLE.map(p => [p.id, p.n])].map(([id, n]) => `<button class="chip" data-who="${id}" aria-pressed="${S.who === id}">${n}</button>`).join('')}</div>`;
+  $('#picksList').outerHTML = `<div id="picksList">${list.map(n => { const u = byId.get(n.h), ph = u && photos(u)[0], fresh = n.p !== me && t && n.at > t;
+    return `<div class="nrow${fresh ? ' fresh' : ''}"><button class="nhome" data-open="${n.h}" data-tonotes="1">${ph ? `<img src="${esc(small(ph))}" alt="" loading="lazy">` : '<span class="ph"></span>'}<span><b>${esc(u?.addr || '')}</b><small>${u ? money(u.price) : ''}</small></span></button><div class="note">${av(n.p)}<div class="bubble"><small>${P[n.p]?.n || ''} · ${when(n.at)}${fresh ? ' · <em>new</em>' : ''}</small>${esc(n.body)}</div></div></div>`; }).join('') || `<div class="empty">${ic('chat')}<h2>No notes yet.</h2><p>Open any home and write a note. Everyone sees it here.</p></div>`}</div>`;
+  if (list.length) store.set(SEEN, allNotes()[0].at);
+}
 function refresh() {
   renderHomes(); renderPicks();
   const ta = $('#noteIn'), act = document.activeElement;
@@ -614,14 +645,14 @@ function openHome(id, push = true, keep = false) {
   <div class="d"><div class="price">${money(u.price)} <small>a month</small></div><h2>${esc(u.addr)}</h2><p class="sub">${u.unit ? 'Unit ' + esc(u.unit) + ' · ' : ''}North Vancouver${u.lease ? ' · Lease: ' + esc(u.lease) : ''}</p>${tags(u, true)}
   ${hl.headline ? `<p class="headline" style="font-size:17px;margin-top:14px">${esc(hl.headline)}</p>` : ''}
   <div class="sec"><h3>What everyone thinks</h3><div class="who-row">${PEOPLE.map(p => `<div>${av(p.id, val(u.id, p.id) || null)}<span><b>${p.n}</b> ${val(u.id, p.id) ? '· ' + REACT[val(u.id, p.id)][1] : '<span style="color:var(--muted)">· not yet</span>'}</span></div>`).join('')}</div></div>
+  <div class="sec" id="notesSec"><h3>Notes</h3>${notes(u.id).map(c => `<div class="note">${av(c.person)}<div class="bubble"><small>${P[c.person]?.n || ''} · ${when(c.at)}</small>${esc(c.body)}${/view/i.test(c.body) && !upcoming(u.id).length ? `<button class="booklink" data-tobook="1">Book it in Viewings ›</button>` : ''}</div></div>`).join('') || '<p class="sub">No notes yet. Ask a question or say what you think.</p>'}
+  <form class="note-form" data-note="${u.id}"><textarea id="noteIn" placeholder="Write a note for the family…" aria-label="Write a note"></textarea><button type="submit" aria-label="Send note">${ic('send')}</button></form></div>
   ${keyDetails(u)}
   ${viewingsSection(u)}
   ${contactSection(u)}
   <div class="facts">${facts.map(([v, l]) => `<div>${esc(v)}<small>${l}</small></div>`).join('')}</div>
   ${hl.good?.length ? `<div class="box good"><h4>Why you might like it</h4><ul>${hl.good.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
   ${hl.watch?.length ? `<div class="box watch"><h4>Worth checking</h4><ul>${hl.watch.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
-  <div class="sec"><h3>Notes</h3>${notes(u.id).map(c => `<div class="note">${av(c.person)}<div class="bubble"><small>${P[c.person]?.n || ''} · ${when(c.at)}</small>${esc(c.body)}</div></div>`).join('') || '<p class="sub">No notes yet. Ask a question or say what you think.</p>'}
-  <form class="note-form" data-note="${u.id}"><textarea id="noteIn" placeholder="Write a note for the family…" aria-label="Write a note"></textarea><button type="submit" aria-label="Send note">${ic('send')}</button></form></div>
   ${u.amen.length ? `<div class="sec"><h3>What it has</h3><div class="amen">${u.amen.map(a => `<span>${esc(a)}</span>`).join('')}</div></div>` : ''}
   <div class="sec"><h3>See the listing</h3>${u.sources.map(s => `<a class="src" href="${esc(s.url)}" target="_blank" rel="noopener"><span>${esc(s.src)}<small>${money(s.price)} a month${s.src === 'Craigslist' || s.src === 'liv.rent' ? ' · message the landlord there' : ' · contact the agent there'}</small></span>${ic('out')}</a>`).join('')}
   <p class="sub" style="margin-top:8px">${u.broker ? 'Agent: ' + esc(u.broker) + '. ' : ''}Prices and availability change, so confirm with the listing before a viewing.</p></div>
@@ -756,6 +787,9 @@ document.addEventListener('click', e => {
     else if (d.copy) { try { navigator.clipboard.writeText(msg); toast('Message copied. Paste it on the listing.'); } catch {} }
     return;
   }
+  if (d.ptab) { S.ptab = d.ptab; renderPicks(); scrollTo({ top: 0 }); return; }
+  if (d.who) { S.who = d.who; renderPicks(); return; }
+  if (d.tobook) { const f = $('#sheet [data-book]'); if (f) { f.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(() => f.d.focus(), 400); } return; }
   if (d.ics) { const v = VW.find(x => String(x.id) === d.ics); if (v) addToApple(v); return; }
   if (d.vcancel) return cancelViewing(+d.vcancel);
   if (d.whopick) { t.setAttribute('aria-pressed', t.getAttribute('aria-pressed') !== 'true'); return; }
@@ -764,7 +798,7 @@ document.addEventListener('click', e => {
   if ('vclear' in d) { vSel = null; return renderViewings(); }
   if (d.contacted) { const u = byId.get(d.contacted); return addNote(d.contacted, `✓ Contacted ${u.contact?.role ? 'the ' + u.contact.role.toLowerCase() : 'them'}${u.contact?.name ? ' (' + u.contact.name + ')' : ''}`); }
   if (d.react) { e.stopPropagation(); if (t.classList.contains('heart')) { t.classList.remove('pop'); void t.offsetWidth; t.classList.add('pop'); } return react(d.home, d.react); }
-  if (d.open) return openHome(d.open);
+  if (d.open) { openHome(d.open); if (d.tonotes) setTimeout(() => { const n = $('#notesSec'); if (n) $('#sheet').scrollTo({ top: n.offsetTop - 70, behavior: 'smooth' }); }, 350); return; }
   if (d.filter) { S.on.has(d.filter) ? S.on.delete(d.filter) : S.on.add(d.filter); renderHomes(); if (map) fit(); return; }
   if (d.view && t.classList.contains('tab')) return setView(d.view);
   if (d.view && t.tagName === 'IMG') return openViewer(d.view, +d.i);
